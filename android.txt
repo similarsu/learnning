@@ -1,0 +1,38 @@
+adb(android debug brige)
+
+adb devices   列出所有设备
+
+重启adb
+adb kill-server
+adb start-server
+
+
+adb install xxx.apk     安装
+
+多出两个文件
+/data/app/xxx_1.apk
+/data/data/包名
+
+adb uninstall com.st.android.helloworld（包名） 卸载
+
+
+adb pull 终端中文件拷贝到电脑
+
+adb push 电脑里的文件拷贝到终端中
+
+
+adb shell 进入终端
+
+多个设备 -s 指定某一设备
+adb -s emulator-5554 install xxx.apk
+ 
+adb端口 5034
+
+查看端口  netstat -ano
+
+
+project.properties 修改编译版本
+
+
+ctrl+F11 模拟器横竖屏切换
+

@@ -1,0 +1,1 @@
+mongos -port 27017 -configdb=127.0.0.1:37017

@@ -1,0 +1,1 @@
+mongod -dbpath D:\Soft\mongodata\A\db -logpath D:\Soft\mongodata\A\log\MongoDB.log -port 27017 -replSet=child/127.0.0.1:37017

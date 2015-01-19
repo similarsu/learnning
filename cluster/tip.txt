@@ -1,0 +1,328 @@
+副本集
+
+建立一个名为spock副本集，分别为27017、37017、47017
+1.建立3个bat文件，内容分别如下：
+mongod -replSet spock -dbpath C:\Users\coolearth\Desktop\cluster\spock\27017\db -port 27017 其中 replSet指定集群名称
+mongod -replSet spock -dbpath C:\Users\coolearth\Desktop\cluster\spock\37017\db -port 37017
+mongod -replSet spock -dbpath C:\Users\coolearth\Desktop\cluster\spock\47017\db -port 47017
+
+2.创建配置文件（在cmd中运行）
+>mongo -nodb    启动shell但不连接到任何数据库
+
+>config={
+_id:"spock", //副本集名称
+members:[//副本集成员
+{_id:0,host:"127.0.0.1:27017"},
+{_id:1,host:"127.0.0.1:37017"},
+{_id:2,host:"127.0.0.1:47017"}
+]
+}
+
+3.使用config对副本集进行初始化
+
+>db=(new Mongo("127.0.0.1:27017")).getDB("test")//连接服务器
+
+>rs.initiate(config)//初始化副本集  也可以使用 db.runCommand({replSetInitiate:config})
+
+
+4.修改副本集配置
+
+>rs.remove("127.0.0.1:47017") //从副本集删除成员
+
+>rs.config()//查看副本集当前的配置
+
+内容如下：
+{
+        "_id" : "spock",
+        "version" : 2,//每次修改副本集配置时，version会自动增加
+        "members" : [
+                {
+                        "_id" : 0,
+                        "host" : "127.0.0.1:27017"
+                },
+                {
+                        "_id" : 1,
+                        "host" : "127.0.0.1:37017"
+                }
+        ]
+}
+
+>rs.add("127.0.0.1:47017")//为副本集添加成员
+
+>rs.config()//查看副本集当前的配置
+
+
+也可以使用reconfig进行复杂的数据集配置修改
+
+>var config=rs.config()//获取当前使用的配置
+
+>config.member[1].host="127.0.0.1:57017"
+
+>rs.reconfig(config)
+
+
+5.设计副本集
+
+只有达到大多数的情况下才能选举或者维持主节点，为了避免出现多个主节点
+
+
+6.选举机制
+
+如果要求被选举为主节点的成员能够得到副本集中大多数成员的投票，它就会成为主节点。即使大多数成员中只有一个否定了本次选举，选举就会取消。
+
+每个成员都只能要求自己被选举为主节点。简单起见，不能推荐其他成员被选举为主节点，只能为申请成为主节点的候选人投票。
+
+
+7.选举仲裁者
+仲裁者的唯一作用是参与选举，并不保存数据，也不会对客户端提供服务。
+
+启动仲裁者与启动普通mongod的方式相同，使用replSet 指定副本集
+
+将仲裁者添加到副本集
+>rs.addArb("127.0.0.1:67017")
+也可以
+>rs.add({_id:4,host:"127.0.0.1:67017",arbiterOnly:true})
+
+成员一旦以仲裁者的身份添加到副本集中，就永远只能是仲裁者
+
+如果可能，尽可能在副本集中使用奇数个数据成员，而不要使用仲裁者
+
+8.优先级
+
+优先级表示一个成员渴望成为主节点的程度。范围0~100，默认为1，
+优先级为O的成员永远不可能成为主节点，这样的成员称为被动成员
+
+假如在副本集中添加一个优先级为1.5的成员
+>rs.add({_id:4,host:"127.0.0.1:57017",priority:1.5})
+假设其他成员的优先级为1，只要127.0.0.1:57017拥有最新的数据，那么当前的主节点就会自动退位，127.0.0.1:57017会被选举为新的主节点。
+如果127.0.0.1:57017数据不够新，当前主节点就会保持不变。
+
+
+9.隐藏成员
+
+客户端不会向隐藏成员发送请求，隐藏成员也不会做为复制源（尽管当其他复制源不可用时隐藏成员也会被使用）。因此，很多人会将不够强大的
+服务器或者备份服务器隐藏起来。
+
+假设副本集如下所示
+>rs.isMaster()
+
+{
+        "setName" : "spock",
+        "ismaster" : true,
+        "secondary" : false,
+        "hosts" : [
+                "127.0.0.1:27017",
+                "127.0.0.1:47017",
+                "127.0.0.1:37017"
+        ],
+        "primary" : "127.0.0.1:27017",
+        "me" : "127.0.0.1:27017",
+        "maxBsonObjectSize" : 16777216,
+        "maxMessageSizeBytes" : 48000000,
+        "localTime" : ISODate("2014-03-11T08:36:56.241Z"),
+        "ok" : 1
+}
+
+为了隐藏127.0.0.1:37017，可以在它的配置中指定hidden:true。只有优先级为0的成员才能隐藏（不能将主节点隐藏）
+
+> var config=rs.config()
+> config.members[2].hidden=0
+> config.members[2].priority=0
+> rs.reconfig(config)
+> rs.isMaster()
+
+使用rs.config()和rs.status()能够看到隐藏成员，隐藏成员只对isMaster()不可见。
+客户端连接到副本集时，会调用isMaster()查看可用成员。
+因此，隐藏成员不会收到客户端的读请求。
+
+要将隐藏成员设为非隐藏，只需将配置中的hidden设为false就可以了，或者删除hidden选项。
+
+10.等待写入复制
+> db.runCommand({getLastError:1,w:"majority"})//参数“w”会强制要求getLastError等待，一直到给定数量的成员都执行完了最后的写入操作
+
+
+>db.runCommand({getLastError:1,w:"majority",wtimeout:1000})//“wtimeout”命令的超时时间
+
+mongodb允许将“w”指定为任意指数。
+
+> db.runCommand({getLastError:1,w:2,wtimeout:1000})//这个命令会一直等待，直到写操作被复制到两个成员（主节点和一个备份节点），如果希望写操作被复制到n个备份节点，应该将“w”指定为n+1(包括主节点)
+
+
+11.自定义复制保证规则
+
+11.1保证复制到每一个数据中心的一台服务器上
+
+a.按照数据中心对成员分类。可以在副本集配置中添加一个“tag”字段
+
+>var config=rs.config()
+
+>config.members[0].tags={dc:"us-east"}
+
+>config.members[1].tags={dc:"us-east"}
+
+>config.members[2].tags={dc:"us-east"}
+
+>config.members[3].tags={dc:"us-east"}
+
+>config.members[4].tags={dc:"us-west"}
+
+>config.members[5].tags={dc:"us-west"}
+
+>config.members[6].tags={dc:"us-west"}
+
+
+b.创建自己的规则，可以通过通过在副本集配置中创建“getLastErrorMode”字段实现。每条规则形式都是"name":{key:number}.
+name是规则名字,可以自己随意命名，key指标签键的指，这里指doc，number指需要遵循这条规则的分组的数量。如number为2（我们希望写操作被复制到"us-east"和"us-west"两个分组中各自至少一台服务器）
+
+>config.settings={}
+>config.getLastErrorModes=[{eachDC:{dc:2}}]
+>rs.reconfig(config)
+
+c.应用这条规则
+>db.foo.insert({x:1})
+>db.runCommand({getLastError:1,w:"eachDoc",wtimeout:1000})
+
+
+11.2保证写操作被复制到可见节点中的大多数
+
+假设拥有5个成员，host0到host4，其中host4是隐藏成员。我们希望确保写操作被复制到非隐藏节点的大多数，即host0,host1,host2,host3中的至少3个成员。
+a.首先为非隐藏节点设置标签
+>var config=rs.config()
+>config.members[0].tags=[{normal:"A"}]
+>config.members[1].tags=[{normal:"B"}]
+>config.members[2].tags=[{normal:"C"}]
+>config.members[3].tags=[{normal:"D"}]
+不需要为隐藏节点（host4）设置标签
+
+b.创建规则
+
+>config.settings.getLastErrorModes=[{visiableMajority:{normal:3}}]
+>rs.reconfig(config)
+
+c.应用规则
+>db.foo.insert({x:1})
+>db.runCommand({getLastError:1,w:"visiableMajority",wtimeout:1000})
+
+
+12.副本集管理
+
+副本集最多只能拥有12个成员，其中只有7个成员拥有投票权。
+
+12.1.强制重新配置
+
+>rs.reconfig(config,{force:true})
+
+12.2.把主节点变成备份节点
+
+>rs.stepDown()//让主节点退化为备份节点，并维持60秒
+
+也可以自己指定时间（以秒为单位）
+>rs.stepDown(600)//10分钟
+
+12.3.阻止选举
+
+如果需对主节点做一些维护，但不希望字段时间内将其他成员选举为主节点，可以在每个备份节点上执行freeze,强制它们始终处于备份节点状态
+
+>rs.freeze(10000)//单位为秒
+
+如果想释放其他成员，可以再次执行freeze
+
+>rs.freeze(0)
+
+
+12.4.禁用复制链
+
+>var config=rs.config()
+>config.settings=cnofig.settings||{}
+>config.settings.allowChaining=false
+>rs.reconfig(config)
+
+
+12.5.计算延迟
+
+跟踪复制情况的一个重要指标是备份节点与主节点之间的延迟程度。
+主节点上
+>db.printReplicationInfo()
+备份节点上
+>db.printSlaveReplicationInfo()
+
+12.6.调整oplog大小
+
+a.如果当前服务器是主节点，让它退位，以便让其他成员的数据能尽快更新到与它一致
+
+b.关闭当前服务器
+
+c.将当前服务器以单机模式启动
+
+d.临时将oplog中的最后一条insert操作保存到其他集合中
+
+>use local
+>var cursor=db.oplog.rs.find({op:"i"})
+>var lastInsert=cursor.sort({"$natural":-1}).limit(1).next()
+>db.tempLastOp.save(lastInsert)
+>db.tempLastOp.findOne()//确保保存成功，这非常重要
+
+e.删除当前的oplog
+
+>db.oplog.rs.drop()
+
+f.创建一个新的oplog
+>db.createCollection("oplog.rs",{capped:true,size:10000})
+
+g.将最后一条操作数据写回oplog
+
+>var temp=db.tempLastOp.findOne()
+>db.oplog.rs.insert(temp)
+>db.oplog.rs.findOne()//要确保插入成功
+
+h.最后将当前服务器做为副本集成员重新启动
+
+12.7.从延迟备份节点中恢复
+
+假设有人不小心删除了一个数据库，幸好你有一个延迟备份节点。现在，需要放弃其他成员数据，明确将延迟备份节点指定为数据源。
+
+第一种方法
+a.关闭所有其他成员
+b.删除其他成员数据目录中的所有数据。确保每个成员（除了延迟备份节点）的数据目录都是空的。
+c.重启所有成员，自动从延迟备份节点中复制数据
+这个方法简单，但在其他成员完成初始化同步前，副本集只有一个可用，很可能会过载。
+
+第二种方法
+a.关闭所有成员，包括延迟备份节点
+b.删除其他成员数据目录中的所有数据。确保每个成员（除了延迟备份节点）的数据目录都是空的。
+c.将延迟备份节点的数据文件复制到其他服务器
+c.重启所有成员
+
+
+12.8.创建索引
+
+希望每次只在一个成员上创建索引，以降低对应用程序的影响。
+
+a.关闭一个备份节点服务器
+b.将这个服务器以单机模式启动
+c.在单机模式下创建索引
+d.索引创建完成后，将服务器做为副本集成员重新启动
+e.对副本集中的每个备份节点重复a~d
+
+
+12.9.在预算有限的情况下进行复制
+
+始终将高性能服务器作为主节点，比较便宜的服务器只用于备份，不处理任何客户端请求。这样的备份节点应设置如下选项
+
+priority:0  保证永远不会成为主节点
+hidden:true 客户端无法将读请求发送给它
+buildIndex:false 
+votes:0  在只有两台服务器的情况下，如果将备份节点的投票数设为0，那么当备份节点挂掉之后，主节点仍然会一直是主节点。如果有第三台服务器（即使它是你的应用服务器），那么应该在第三台服务器运行一个仲裁成员，而不是将第三台服务器的投票数设为0
+
+
+12.10.主节点如何跟踪延迟
+
+>use local
+>db.slaves.find()
+
+
+分片
+
+1.配置服务器
+保存这集群和分片的元数据，极端重要，必须启动日志功能。每个配置服务器都应位于单独的物理机器上，最好分布在不同地理位置的机器上
+

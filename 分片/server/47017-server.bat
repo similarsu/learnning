@@ -1,0 +1,1 @@
+mongod -dbpath D:\Soft\mongodata\47017\db -logpath D:\Soft\mongodata\47017\log\MongoDB.log -port 47017 

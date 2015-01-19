@@ -1,0 +1,1 @@
+mongod -replSet spock -dbpath C:\Users\coolearth\Desktop\cluster\spock\27017\db -port 27017
